@@ -1,0 +1,32 @@
+# Environment
+.env
+*.env
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Sensitive credentials
+**/keys/
+**/*.json
+!service-account-template.json
+!package.json
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+
+# Airflow logs
+**/logs/
+*.log
+
+# Local data
+**/weather_json/
+data/
+extract/weather_json/
+
+# Docker volumes
+**/postgres-db-volume/
