@@ -6,6 +6,8 @@ from datetime import datetime, timedelta
 import requests
 from google.cloud import bigquery
 from google.oauth2 import service_account
+from airflow.operators.trigger_dagrun import TriggerDagRunOperator 
+
 
 # Default args
 default_args = {
@@ -18,10 +20,10 @@ default_args = {
 }
 
 with DAG(
-    'weather_data_pipeline',
+    'weather_ingestion',
     default_args=default_args,
     description='Fetch weather API and load into BigQuery',
-    schedule_interval='@daily',
+    schedule_interval='@hourly',
     start_date=datetime(2026, 2, 23),
     catchup=False,
     tags=['weather', 'pipeline'],
@@ -65,6 +67,7 @@ with DAG(
             bigquery.SchemaField("observation_time", "TIMESTAMP"),
             bigquery.SchemaField("sunrise", "TIMESTAMP"),
             bigquery.SchemaField("sunset", "TIMESTAMP"),
+            bigquery.SchemaField("timezone", "INT64"),
             bigquery.SchemaField("ingestion_timestamp", "TIMESTAMP"),
         ]
         
@@ -93,8 +96,9 @@ with DAG(
                 # 2. SAVING JSON locally
                 output_dir = "/opt/airflow/dags/weather_json"
                 os.makedirs(output_dir, exist_ok=True)
-                execution_date = context['ds']
-                output_file = os.path.join(output_dir, f"weather_{city}_{execution_date}.json")
+                date_str = context['ds_nodash']
+                hour = context['execution_date'].hour
+                output_file = os.path.join(output_dir, f"weather_{city}_{date_str}_{hour:02d}.json")
                 with open(output_file, "w") as f:
                     json.dump(data, f, indent=4)
                 print(f"Saved JSON to {output_file}")
@@ -118,6 +122,7 @@ with DAG(
                         TIMESTAMP_SECONDS(@observation_time) AS observation_time,
                         TIMESTAMP_SECONDS(@sunrise) AS sunrise,
                         TIMESTAMP_SECONDS(@sunset) AS sunset,
+                        @timezone AS timezone,
                         CURRENT_TIMESTAMP() as ingestion_timestamp
                     ) S
                     ON T.city = S.city AND T.observation_time = S.observation_time
@@ -133,14 +138,15 @@ with DAG(
                         wind_degree = S.wind_degree,
                         sunrise = S.sunrise,
                         sunset = S.sunset,
+                        timezone=S.timezone,
                         ingestion_timestamp = S.ingestion_timestamp
                     WHEN NOT MATCHED THEN
                     INSERT (city, country, latitude, longitude, temperature, feels_like,
                             humidity, pressure, weather_main, weather_description,
-                            wind_speed, wind_degree, observation_time, sunrise, sunset, ingestion_timestamp)
+                            wind_speed, wind_degree, observation_time, sunrise, sunset,timezone,ingestion_timestamp)
                     VALUES (S.city, S.country, S.latitude, S.longitude, S.temperature, S.feels_like,
                             S.humidity, S.pressure, S.weather_main, S.weather_description,
-                            S.wind_speed, S.wind_degree, S.observation_time, S.sunrise, S.sunset, S.ingestion_timestamp)
+                            S.wind_speed, S.wind_degree, S.observation_time, S.sunrise, S.sunset,S.timezone, S.ingestion_timestamp)
                     """
 
                 job_config = bigquery.QueryJobConfig(
@@ -160,6 +166,7 @@ with DAG(
                         bigquery.ScalarQueryParameter("observation_time", "INT64", data["dt"]),
                         bigquery.ScalarQueryParameter("sunrise", "INT64", data["sys"]["sunrise"]),
                         bigquery.ScalarQueryParameter("sunset", "INT64", data["sys"]["sunset"]),
+                        bigquery.ScalarQueryParameter("timezone", "INT64", data["timezone"]),
                     ]
                 )
                 
@@ -175,8 +182,16 @@ with DAG(
         
         print("\n All cities processed!")
 
+    trigger_processing = TriggerDagRunOperator(
+        task_id='trigger_processing',
+        trigger_dag_id='weather_processing', 
+        wait_for_completion=False, 
+        conf={"source": "ingestion_triggered"}, 
+    )
+    
     weather_task = PythonOperator(
         task_id="fetch_and_load_weather",
         python_callable=fetch_and_load_weather,
         provide_context=True
     )
+    weather_task >> trigger_processing
