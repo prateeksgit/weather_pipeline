@@ -12,32 +12,21 @@ with DAG (
     start_date=datetime(2026,2,25),
     catchup=False,
     ) as dag:
-
-        wait_for_ingestion = ExternalTaskSensor(
-        task_id='wait_for_ingestion',
-        external_dag_id='weather_ingestion',
-        external_task_id=None,
-        timeout=3600,
-        execution_delta=None,  
-        check_existence=True,  
-        poke_interval=30,
-        )
-
-        # Task 1: Build dimension tables
+        # Task 1: Building dimension tables
         build_dim_city = BigQueryExecuteQueryOperator(
             task_id='build_dim_city',
             sql='''
                 MERGE `weather-data-pipeline-487815.weather_warehouse.dim_city` T
                 USING (
                     SELECT DISTINCT
-                        city AS city_name,
+                        city_name,
                         country,
                         latitude,
                         longitude,
                         timezone
                     FROM `weather-data-pipeline-487815.weather_staging.current_weather`
                     WHERE DATE(ingestion_timestamp) = CURRENT_DATE() 
-                    AND city IS NOT NULL   
+                    AND city_name IS NOT NULL   
                 ) S
                 ON T.city_name = S.city_name AND T.country = S.country
                 WHEN MATCHED THEN
@@ -52,4 +41,61 @@ with DAG (
             use_legacy_sql=False,
             gcp_conn_id='google_cloud_default'
         )
-        
+        build_dim_weather = BigQueryExecuteQueryOperator(
+            task_id='build_dim_weather',
+            sql='''
+                MERGE `weather-data-pipeline-487815.weather_warehouse.dim_weather_condition` T
+                USING (
+                    SELECT DISTINCT
+                        weather_id,
+                        weather_main AS main,
+                        weather_description AS description,
+                        weather_icon AS icon
+                    FROM `weather-data-pipeline-487815.weather_staging.current_weather`
+                ) S
+                ON T.weather_id = S.weather_id
+                WHEN NOT MATCHED THEN
+                INSERT (weather_id, main, description, icon)
+                VALUES (S.weather_id, S.main, S.description, S.icon)
+            ''',
+            use_legacy_sql=False,
+            gcp_conn_id='google_cloud_default'
+        )
+        # Task 2: Building facts tables
+        build_fact_observation=BigQueryExecuteQueryOperator(
+            task_id="build_fact_observation",
+            sql='''
+                MERGE `weather-data-pipeline-487815.weather_warehouse.fact_weather_observation` T
+                USING (
+                    SELECT
+                        c.city_id,
+                        r.observation_time,
+                        r.temperature,
+                        r.feels_like,
+                        r.temp_min,
+                        r.temp_max,
+                        r.pressure,
+                        r.sea_level,
+                        r.grnd_level,
+                        r.humidity,
+                        r.wind_speed,
+                        r.wind_degree,
+                        r.visibility,
+                        r.cloud_percentage
+                    FROM `weather-data-pipeline-487815.weather_staging.current_weather` r
+                    JOIN `weather-data-pipeline-487815.weather_warehouse.dim_city` c
+                        ON c.city_name = r.city_name AND c.country = r.country
+                    WHERE DATE(r.ingestion_timestamp) = CURRENT_DATE()
+                ) S
+                ON T.city_id = S.city_id AND T.observation_time = S.observation_time
+                WHEN NOT MATCHED THEN
+                    INSERT (city_id, observation_time, temperature, feels_like, temp_min, temp_max,
+                            pressure, sea_level, grnd_level, humidity, wind_speed, wind_degree,
+                            visibility, cloud_percentage)
+                    VALUES (S.city_id, S.observation_time, S.temperature, S.feels_like, S.temp_min, S.temp_max,
+                            S.pressure, S.sea_level, S.grnd_level, S.humidity, S.wind_speed, S.wind_degree,
+                            S.visibility, S.cloud_percentage)
+            ''',
+            use_legacy_sql=False,
+            gcp_conn_id='google_cloud_default'
+            )

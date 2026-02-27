@@ -52,22 +52,43 @@ with DAG(
         # Definining table and schema 
         table_id = "weather-data-pipeline-487815.weather_staging.current_weather"
         schema = [
-            bigquery.SchemaField("city", "STRING"),
+            # City identifiers
+            bigquery.SchemaField("city_name", "STRING"),
             bigquery.SchemaField("country", "STRING"),
             bigquery.SchemaField("latitude", "FLOAT"),
             bigquery.SchemaField("longitude", "FLOAT"),
+            bigquery.SchemaField("timezone", "INT64"),
+            
+            # Temperature metrics
             bigquery.SchemaField("temperature", "FLOAT"),
             bigquery.SchemaField("feels_like", "FLOAT"),
-            bigquery.SchemaField("humidity", "INT64"),
+            bigquery.SchemaField("temp_min", "FLOAT"),
+            bigquery.SchemaField("temp_max", "FLOAT"),
+            
+            # Pressure metrics
             bigquery.SchemaField("pressure", "INT64"),
+            bigquery.SchemaField("sea_level", "INT64"),
+            bigquery.SchemaField("grnd_level", "INT64"),
+            
+            # Other weather metrics
+            bigquery.SchemaField("humidity", "INT64"),
+            bigquery.SchemaField("visibility", "INT64"),
+            bigquery.SchemaField("cloud_percentage", "INT64"),
+            
+            # Wind metrics
+            bigquery.SchemaField("wind_speed", "FLOAT"),
+            bigquery.SchemaField("wind_degree", "INT64"),
+            
+            # Weather condition
+            bigquery.SchemaField("weather_id", "INT64"),
             bigquery.SchemaField("weather_main", "STRING"),
             bigquery.SchemaField("weather_description", "STRING"),
-            bigquery.SchemaField("wind_speed", "FLOAT"),
-            bigquery.SchemaField("wind_degree", "FLOAT"),
+            bigquery.SchemaField("weather_icon", "STRING"),
+            
+            # Time fields
             bigquery.SchemaField("observation_time", "TIMESTAMP"),
             bigquery.SchemaField("sunrise", "TIMESTAMP"),
             bigquery.SchemaField("sunset", "TIMESTAMP"),
-            bigquery.SchemaField("timezone", "INT64"),
             bigquery.SchemaField("ingestion_timestamp", "TIMESTAMP"),
         ]
         
@@ -106,69 +127,116 @@ with DAG(
                 query = f"""
                     MERGE `{table_id}` T
                     USING (
-                    SELECT
-                        @city AS city,
-                        @country AS country,
-                        @latitude AS latitude,
-                        @longitude AS longitude,
-                        @temperature AS temperature,
-                        @feels_like AS feels_like,
-                        @humidity AS humidity,
-                        @pressure AS pressure,
-                        @weather_main AS weather_main,
-                        @weather_description AS weather_description,
-                        @wind_speed AS wind_speed,
-                        @wind_degree AS wind_degree,
-                        TIMESTAMP_SECONDS(@observation_time) AS observation_time,
-                        TIMESTAMP_SECONDS(@sunrise) AS sunrise,
-                        TIMESTAMP_SECONDS(@sunset) AS sunset,
-                        @timezone AS timezone,
-                        CURRENT_TIMESTAMP() as ingestion_timestamp
+                        SELECT
+                            @city_name AS city_name,
+                            @country AS country,
+                            @latitude AS latitude,
+                            @longitude AS longitude,
+                            @timezone AS timezone,
+                            @temperature AS temperature,
+                            @feels_like AS feels_like,
+                            @temp_min AS temp_min,
+                            @temp_max AS temp_max,
+                            @pressure AS pressure,
+                            @sea_level AS sea_level,
+                            @grnd_level AS grnd_level,
+                            @humidity AS humidity,
+                            @visibility AS visibility,
+                            @cloud_percentage AS cloud_percentage,
+                            @wind_speed AS wind_speed,
+                            @wind_degree AS wind_degree,
+                            @weather_id AS weather_id,
+                            @weather_main AS weather_main,
+                            @weather_description AS weather_description,
+                            @weather_icon AS weather_icon,
+                            TIMESTAMP_SECONDS(@observation_time) AS observation_time,
+                            TIMESTAMP_SECONDS(@sunrise) AS sunrise,
+                            TIMESTAMP_SECONDS(@sunset) AS sunset,
+                            CURRENT_TIMESTAMP() AS ingestion_timestamp
                     ) S
-                    ON T.city = S.city AND T.observation_time = S.observation_time
+                    ON T.city_name = S.city_name AND T.observation_time = S.observation_time
                     WHEN MATCHED THEN
-                    UPDATE SET
-                        temperature = S.temperature,
-                        feels_like = S.feels_like,
-                        humidity = S.humidity,
-                        pressure = S.pressure,
-                        weather_main = S.weather_main,
-                        weather_description = S.weather_description,
-                        wind_speed = S.wind_speed,
-                        wind_degree = S.wind_degree,
-                        sunrise = S.sunrise,
-                        sunset = S.sunset,
-                        timezone=S.timezone,
-                        ingestion_timestamp = S.ingestion_timestamp
+                        UPDATE SET
+                            temperature = S.temperature,
+                            feels_like = S.feels_like,
+                            temp_min = S.temp_min,
+                            temp_max = S.temp_max,
+                            pressure = S.pressure,
+                            sea_level = S.sea_level,
+                            grnd_level = S.grnd_level,
+                            humidity = S.humidity,
+                            visibility = S.visibility,
+                            cloud_percentage = S.cloud_percentage,
+                            wind_speed = S.wind_speed,
+                            wind_degree = S.wind_degree,
+                            weather_id = S.weather_id,
+                            weather_main = S.weather_main,
+                            weather_description = S.weather_description,
+                            weather_icon = S.weather_icon,
+                            sunrise = S.sunrise,
+                            sunset = S.sunset,
+                            timezone = S.timezone,
+                            ingestion_timestamp = S.ingestion_timestamp
                     WHEN NOT MATCHED THEN
-                    INSERT (city, country, latitude, longitude, temperature, feels_like,
-                            humidity, pressure, weather_main, weather_description,
-                            wind_speed, wind_degree, observation_time, sunrise, sunset,timezone,ingestion_timestamp)
-                    VALUES (S.city, S.country, S.latitude, S.longitude, S.temperature, S.feels_like,
-                            S.humidity, S.pressure, S.weather_main, S.weather_description,
-                            S.wind_speed, S.wind_degree, S.observation_time, S.sunrise, S.sunset,S.timezone, S.ingestion_timestamp)
-                    """
+                        INSERT (
+                            city_name, country, latitude, longitude, timezone,
+                            temperature, feels_like, temp_min, temp_max,
+                            pressure, sea_level, grnd_level, humidity, visibility, cloud_percentage,
+                            wind_speed, wind_degree,
+                            weather_id, weather_main, weather_description, weather_icon,
+                            observation_time, sunrise, sunset, ingestion_timestamp
+                        )
+                        VALUES (
+                            S.city_name, S.country, S.latitude, S.longitude, S.timezone,
+                            S.temperature, S.feels_like, S.temp_min, S.temp_max,
+                            S.pressure, S.sea_level, S.grnd_level, S.humidity, S.visibility, S.cloud_percentage,
+                            S.wind_speed, S.wind_degree,
+                            S.weather_id, S.weather_main, S.weather_description, S.weather_icon,
+                            S.observation_time, S.sunrise, S.sunset, S.ingestion_timestamp
+                        )
+                """
 
                 job_config = bigquery.QueryJobConfig(
-                    query_parameters=[
-                        bigquery.ScalarQueryParameter("city", "STRING", data["name"]),
-                        bigquery.ScalarQueryParameter("country", "STRING", data["sys"]["country"]),
-                        bigquery.ScalarQueryParameter("latitude", "FLOAT64", data["coord"]["lat"]),
-                        bigquery.ScalarQueryParameter("longitude", "FLOAT64", data["coord"]["lon"]),
-                        bigquery.ScalarQueryParameter("temperature", "FLOAT64", data["main"]["temp"]),
-                        bigquery.ScalarQueryParameter("feels_like", "FLOAT64", data["main"]["feels_like"]),
-                        bigquery.ScalarQueryParameter("humidity", "INT64", int(data["main"]["humidity"])),
-                        bigquery.ScalarQueryParameter("pressure", "INT64", int(data["main"]["pressure"])),
-                        bigquery.ScalarQueryParameter("weather_main", "STRING", data["weather"][0]["main"]),
-                        bigquery.ScalarQueryParameter("weather_description", "STRING", data["weather"][0]["description"]),
-                        bigquery.ScalarQueryParameter("wind_speed", "FLOAT64", data["wind"]["speed"]),
-                        bigquery.ScalarQueryParameter("wind_degree", "INT64", data["wind"]["deg"]),
-                        bigquery.ScalarQueryParameter("observation_time", "INT64", data["dt"]),
-                        bigquery.ScalarQueryParameter("sunrise", "INT64", data["sys"]["sunrise"]),
-                        bigquery.ScalarQueryParameter("sunset", "INT64", data["sys"]["sunset"]),
-                        bigquery.ScalarQueryParameter("timezone", "INT64", data["timezone"]),
-                    ]
-                )
+                    query_parameters = [
+                    # City identifiers
+                    bigquery.ScalarQueryParameter("city_name", "STRING", data["name"]),
+                    bigquery.ScalarQueryParameter("country", "STRING", data["sys"]["country"]),
+                    bigquery.ScalarQueryParameter("latitude", "FLOAT64", data["coord"]["lat"]),
+                    bigquery.ScalarQueryParameter("longitude", "FLOAT64", data["coord"]["lon"]),
+                    bigquery.ScalarQueryParameter("timezone", "INT64", data["timezone"]),
+                    
+                    # Temperature metrics
+                    bigquery.ScalarQueryParameter("temperature", "FLOAT64", data["main"]["temp"]),
+                    bigquery.ScalarQueryParameter("feels_like", "FLOAT64", data["main"]["feels_like"]),
+                    bigquery.ScalarQueryParameter("temp_min", "FLOAT64", data["main"]["temp_min"]),
+                    bigquery.ScalarQueryParameter("temp_max", "FLOAT64", data["main"]["temp_max"]),
+                    
+                    # Pressure metrics
+                    bigquery.ScalarQueryParameter("pressure", "INT64", int(data["main"]["pressure"])),
+                    bigquery.ScalarQueryParameter("sea_level", "INT64", int(data["main"].get("sea_level", 0))),
+                    bigquery.ScalarQueryParameter("grnd_level", "INT64", int(data["main"].get("grnd_level", 0))),
+                    
+                    # Other weather metrics
+                    bigquery.ScalarQueryParameter("humidity", "INT64", int(data["main"]["humidity"])),
+                    bigquery.ScalarQueryParameter("visibility", "INT64", int(data.get("visibility", 0))),
+                    bigquery.ScalarQueryParameter("cloud_percentage", "INT64", int(data["clouds"]["all"])),
+                    
+                    # Wind metrics
+                    bigquery.ScalarQueryParameter("wind_speed", "FLOAT64", data["wind"]["speed"]),
+                    bigquery.ScalarQueryParameter("wind_degree", "INT64", int(data["wind"]["deg"])),
+                    
+                    # Weather condition (first element)
+                    bigquery.ScalarQueryParameter("weather_id", "INT64", int(data["weather"][0]["id"])),
+                    bigquery.ScalarQueryParameter("weather_main", "STRING", data["weather"][0]["main"]),
+                    bigquery.ScalarQueryParameter("weather_description", "STRING", data["weather"][0]["description"]),
+                    bigquery.ScalarQueryParameter("weather_icon", "STRING", data["weather"][0]["icon"]),
+                    
+                    # Time fields
+                    bigquery.ScalarQueryParameter("observation_time", "INT64", data["dt"]),
+                    bigquery.ScalarQueryParameter("sunrise", "INT64", data["sys"]["sunrise"]),
+                    bigquery.ScalarQueryParameter("sunset", "INT64", data["sys"]["sunset"]),
+                ]
+            )
                 
                 # 4. INSERTING into BigQuery
                 job = client.query(query, job_config=job_config)
